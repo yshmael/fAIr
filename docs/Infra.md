@@ -10,19 +10,14 @@ fAIr differs slightly, because we have:
 Currently model development happens in the `fAIr-models` repo, but this
 might eventually move to the `fAIr` monorepo.
 
-The model flow works like this:
-- Each model dir has a `stac-item.json`. These point at the moving
-  `dev-inference` image tag, and only seed a STAC the first time it starts up
-  (on dev, or a brand new prod).
-- After that the STAC database is the source of truth, updated through the
-  Django admin.
-- A CI matrix workflow builds an image for each dir under `./models` when its
-  contents change, tagged with the git SHA.
-- In the Django admin we give a SHA a version (`vX.Y.Z-rc.N`, then `vX.Y.Z`)
-  and register it in the STAC, pinned to the image digest ('rc' release candidates are used for staging, before full production tagging).
-- A `BaseModel` table holds the model name and its status. The version details
-  live entirely in the STAC though.
+The model flow works like this, explicitly separating **infrastructure state** from **model catalog state**:
 
+* **Smart CI Builds:** A GitHub Actions workflow uses a dynamic `git diff` strategy to detect which model directories under `./models` have changed (falling back to building all models if shared core files change). It builds the Docker images and tags them with the git SHA.
+* **Infrastructure Deployment (GitOps):** The CI pipeline pushes the newly built image tags to the `values.yaml` file in the `k8s-infra` repository. ArgoCD detects this and automatically spins up/updates the Knative inference endpoints so the models are physically running on the cluster.
+* **Model Catalog (Source of Truth):** While ArgoCD manages the physical infrastructure, the **STAC database remains the absolute source of truth** for our model catalog. Automated STAC registration via the Helm chart is explicitly disabled (`stac.register: false`) to protect the database from being polluted by CI/CD runs.
+* **Django Administration:** Instead, we use the Django admin to give a deployed SHA a version (`vX.Y.Z-rc.N`, then `vX.Y.Z`) and register it in the STAC, pinned to the image digest (`rc` release candidates are used for staging, before full production tagging).
+* A `BaseModel` table holds the model name and its status. The version details live entirely in the STAC, however.
+  
 ## Step 1: Development
 
 > [!NOTE]
